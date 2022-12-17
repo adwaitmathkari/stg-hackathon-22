@@ -51,16 +51,28 @@ app.get('/beds', async (req, res) => {
 })
 
 
-app.post('/bed/setstatus', async (req, res) => {
-    console.log(req.body);
+app.post('/patient/assignbed', async (req, res) => {
+    console.log('REQUEST BODY: ' ,req.body);
     const data = req.body;
     if(!data.patientid || !data.bedid) res.status(400).send('Bad Request');
     
     const patientid = data.patientid;
     const bedid = data.bedid;
-    const status = data.status;
+
+    //get bed status:
+    let beds = await dbclient.query(`select * from public.resource where bedid = '${bedid}'`);
+    beds = beds.rows;
+    console.log(beds);
+    if (!beds || beds.length === 0) {
+        return res.status(404).send('Not found');
+    }
+    let bed = beds[0];
+    if (bed.assignedstatus === 'ASSIGNED') {
+        return res.status(400).json({ message: 'Bed Unavailable' })
+    }
     
-    let query1 = `UPDATE patient SET bedid = '${bedid}', bedstatus = '${status}' 
+    // Update patient
+    let query1 = `UPDATE patient SET bedid = '${bedid}', bedstatus = 'ALLOCATED' 
                    WHERE patientid = '${patientid}';`;
     // const values = [bedid, status, patientid ];
     
@@ -69,14 +81,51 @@ app.post('/bed/setstatus', async (req, res) => {
 
 
     // update bed object
-    const bedStatus = status === 'ALLOCATED' ? 'ASSIGNED' : 'AVAILABLE';
-    let query2 = `UPDATE resource 
-                   SET assignedstatus = '${bedStatus}' WHERE bedid='${bedid}'`;
+    const bedStatus = 'ASSIGNED';
+    let query2 = `UPDATE resource SET assignedstatus = '${bedStatus}' WHERE bedid='${bedid}'`;
     console.log(query2);
     const resp2 = await dbclient.query(query2);
     console.log(resp2);
 
-    res.json({staus: 'Successfully updated statuses'});
+    return res.json({staus: 'Successfully assigned bed to patient', patientid, bedid});
+})
+
+
+app.post('/patient/discharge', async (req, res) => {
+    console.log('REQUEST BODY: ' ,req.body);
+    const data = req.body;
+    if(!data.patientid) res.status(400).send('Bad Request');
+    
+    const patientid = data.patientid;
+
+    //get patient
+    let patients = await dbclient.query(`select * from public.patient where patientid = '${patientid}'`);
+    patients = patients.rows;
+    console.log(patients);
+    if (!patients || patients.length === 0) {
+        return res.status(404).send('Not found');
+    }
+    let patient = patients[0];
+    if (patient.bedstatus !== 'ALLOCATED' || !patient.bedid) {
+        return res.status(400).json({ message: 'Patient not allocated any bed' })
+    }
+    const bedid = patient.bedid;
+    
+    // Update patient
+    let query1 = `UPDATE patient SET bedid = null, bedstatus = 'DISCHARGED' 
+                   WHERE patientid = '${patientid}';`;
+    
+    const resp = await dbclient.query(query1);
+    console.log(resp);
+
+
+    // update bed object
+    const bedStatus = 'AVAILABLE';
+    let query2 = `UPDATE resource SET assignedstatus = '${bedStatus}' WHERE bedid='${bedid}'`;
+    const resp2 = await dbclient.query(query2);
+    console.log(resp2);
+
+    return res.json({staus: 'Successfully discharged patient', patientid: patientid, bedid});
 })
 
 
